@@ -1,0 +1,36 @@
+#linkedinCrawlerBox {
+  position: fixed;
+  bottom: 0;  right: 0;
+  background: #f3f3f3;
+  padding: 10px;
+  font-family: sans-serif;
+  font-size: 14px;
+  border-top: 2px solid #0073b1;
+  z-index: 99999;
+  max-height: 300px;
+  width: 300px;
+  overflow-y: auto;
+}
+
+#linkedinCrawlerBox .header {
+  font-weight: bold;
+  color: #0073b1;
+  margin-bottom: 8px;
+}
+
+#linkedinCrawlerBox .controls {
+  margin-bottom: 8px;
+}
+
+#linkedinCrawlerBox table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#linkedinCrawlerBox table th,
+#linkedinCrawlerBox table td {
+  border: 1px solid #ccc;
+  padding: 4px 6px;
+  text-align: left;
+  font-size: 12px;
+}
