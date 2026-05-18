@@ -1,4 +1,3 @@
-
 // content.js - LinkedIn Job Crawler with full details (salary, type, remote)
 let jobs = [];
 let isCrawling = false;
@@ -13,6 +12,11 @@ function wait(ms) {
 function getText(selector) {
   const el = document.querySelector(selector);
   return el?.innerText?.trim() || "";
+}
+
+function getJobLink() {
+  const match = location.href.match(/currentJobId=(\d+)/);
+  return match ? `https://www.linkedin.com/jobs/view/${match[1]}` : location.href;
 }
 
 function simulateUserBehavior(element) {
@@ -42,76 +46,53 @@ function restoreFromStorage() {
 }
 
 async function crawlJobsOnPage() {
-    const cards = [...document.querySelectorAll('[componentkey^="job-card-component-ref"]')];
+  const cards = [...document.querySelectorAll('.job-card-container--clickable')];
 
-    for (const card of cards) {
-      if (!isCrawling) return;
+  for (const card of cards) {
+    if (!isCrawling) return;
 
     simulateUserBehavior(card);
     card.click();
     await wait(2000 + Math.random() * 1000);
 
-    const titleSpan = card.querySelector('span[aria-hidden="true"]');
-    let jobTitle = titleSpan ? titleSpan.innerText.trim() : card.querySelector('p span')?.innerText.trim() || "";
+    const titleEl = card.querySelector('a.job-card-container__link span[aria-hidden="true"]');
+    const companyEl = card.querySelector('div.artdeco-entity-lockup__subtitle span');
+    const linkEl = card.querySelector('a.job-card-container__link');
+    const easyApplyEl = card.querySelector('li.job-card-container__footer-item svg[data-test-icon="linkedin-bug-color-small"]');
 
-    const title = jobTitle
-      .replace(/^Selected,\s*/i, '') // Strips "Selected, " if it exists at the start
-      .replace(/\s*\(Verified job\)$/i, '') // Strips "(Verified job)" string trailing notes
-      .trim();
-
-    const allParagraphs = [...card.querySelectorAll('p')];
-    const companyParagraph = allParagraphs[1];
-    const locationParagraph = allParagraphs[2];
-
-    const company = companyParagraph ? companyParagraph.innerText.trim() : "";
-    const location = locationParagraph ? locationParagraph.innerText.trim() : "";
-    const easyApply = allParagraphs.some(p => p.innerText.includes('Easy Apply')) ? "True" : "False";
-
-    const cardText = card.innerText;
-
-// Match anything like "X days ago", "X weeks ago", "Hours ago", "Yesterday"
-    const dateMatch = cardText.match(/(\d+\s+(?:days?|weeks?|months?|hours?)\s+ago|yesterday|just\s+now)/i);
-
-    let date = dateMatch ? dateMatch[0] : "Unknown";
-    console.log(date); // Output: "4 days ago"
-
-    const activeJobLink = [...document.querySelectorAll('a')]
-      .find(a => a.href.includes('/jobs/view/'));
-
-    let link = ''
-    let jobId = '';
-    if (activeJobLink) {
-      link = activeJobLink.href
-      const match = activeJobLink.href.match(/\/view\/(\d+)/);
-      jobId = match ? match[1] : '';
-    }
     // --- Get detailed info from detail panel ---
-    let jobType = "";  // Full-time, Part-time, etc.
-    let workplace = ""; // Hybrid, Remote, On-site
-    if (jobId) {
-      const matchingLinks = [...document.querySelectorAll(`a[href*="/jobs/search-results/?currentJobId=${jobId}"]`)];
+    const detailContainer = document.querySelector('.job-details-jobs-unified-top-card__tertiary-description-container');
+    let location = '', date = '';
+    if (detailContainer) {
+      const spans = [...detailContainer.querySelectorAll('span.tvm__text')];
+      for (const span of spans) {
+        const txt = span.innerText?.trim();
+        if (txt?.match(/\d+ (hours|days|minutes) ago/i)) date = txt;
+        else if (!location && txt) location = txt;
+      }
+    }
 
-      matchingLinks.forEach(link => {
-        const text = link.innerText?.trim();
-        if (!text) return;
-
-        if (['Hybrid', 'Remote', 'On-site'].includes(text)) {
-          workplace = text;
-        } else if (['Full-time', 'Part-time', 'Contract', 'Internship', 'Temporary'].includes(text)) {
-          jobType = text;
-        }
+    const fitContainer = document.querySelector('.job-details-fit-level-preferences');
+    let salary = '', type = '';
+    if (fitContainer) {
+      const btns = fitContainer.querySelectorAll('button span strong');
+      btns.forEach(btn => {
+        const txt = btn.innerText.trim();
+        if (txt.includes("$")) salary = txt;
+        else if (txt.toLowerCase().includes("full") || txt.toLowerCase().includes("part")) type = txt;
+        else if (!type) type = txt;
       });
     }
 
     const job = {
-      title,
-      company,
+      title: titleEl?.innerText?.trim() || '',
+      company: companyEl?.innerText?.trim() || '',
       location,
-      link,
+      salary,
+      link: linkEl ? `https://www.linkedin.com${linkEl.getAttribute('href')}` : '',
       date,
-      jobType,
-      workplace,
-      easyApply
+      type,
+      easyApply: easyApplyEl ? 'Yes' : 'No'
     };
 
     const key = job.link;
@@ -125,7 +106,7 @@ async function crawlJobsOnPage() {
 }
 
 async function goToNextPage() {
-  const nextBtn = document.querySelector('button[data-testid="pagination-controls-next-button-visible"]');
+  const nextBtn = document.querySelector('button.jobs-search-pagination__button--next');
   if (nextBtn && !nextBtn.disabled) {
     simulateUserBehavior(nextBtn);
     nextBtn.click();
@@ -142,10 +123,6 @@ async function startCrawling() {
 
   while (isCrawling && currentPage <= maxPages) {
     await crawlJobsOnPage();
-    if (currentPage >= maxPages) {
-      console.log("Reached specified max page limit sequence threshold.");
-      break;
-    }
     const hasNext = await goToNextPage();
     if (!hasNext) break;
     currentPage++;
@@ -156,9 +133,9 @@ async function startCrawling() {
 }
 
 function exportCSV() {
-  const header = "Company Name, Title Job, Link Job, Location, Employment Type, Workplace Type, Date, Easy Apply\n";
+  const header = "Company Name,Title Job,Link Job,Salary,Location,Type,Date,Easy Apply\n";
   const rows = jobs.map(j =>
-    [ j.company, j.title, j.link, j.location, j.jobType, j.workplace, j.date, j.easyApply ]
+    [ j.company, j.title, j.link,j.salary, j.location, j.type,  j.date, j.easyApply ]
       .map(field => `"${(field || "").replace(/"/g, '""')}"`).join(',')
   );
   const blob = new Blob([header + rows.join("\n")], { type: "text/csv" });
@@ -186,13 +163,13 @@ function renderJobTable() {
   for (const j of jobs) {
     const row = document.createElement("tr");
     row.innerHTML = `
-          <td>${j.title}</td>
+      <td>${j.title}</td>
       <td>${j.company}</td>
-      <td><a href="${j.link}" target="_blank">Link</a></td>
       <td>${j.location}</td>
-      <td>${j.jobType}</td>
-      <td>${j.workplace}</td>
+      <td>${j.type}</td>
+      <td>${j.salary}</td>
       <td>${j.date}</td>
+      <td><a href="${j.link}" target="_blank">Link</a></td>
       <td>${j.easyApply}</td>
     `;
     container.appendChild(row);
@@ -262,11 +239,11 @@ function renderJobTable() {
           <tr>
             <th>Title</th>
             <th>Company</th>
-            <th>Link</th>
             <th>Location</th>
-            <th>EmploymentType</th>
-            <th>Workplace</th>
+            <th>Type</th>
+            <th>Salary</th>
             <th>Date</th>
+            <th>Link</th>
             <th>Easy Apply</th>
           </tr>
         </thead>
