@@ -1,4 +1,4 @@
-// content.js - LinkedIn Job Crawler with full details (salary, type, remote)
+// content.js - LinkedIn Job Crawler with full details (salary, type, remote) - Fixed Title & Company
 let jobs = [];
 let isCrawling = false;
 let maxPages = 5;
@@ -6,7 +6,7 @@ let currentPage = 1;
 let jobSet = new Set();
 
 function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getText(selector) {
@@ -16,37 +16,41 @@ function getText(selector) {
 
 function getJobLink() {
   const match = location.href.match(/currentJobId=(\d+)/);
-  return match ? `https://www.linkedin.com/jobs/view/${match[1]}` : location.href;
+  return match
+    ? `https://www.linkedin.com/jobs/view/${match[1]}`
+    : location.href;
 }
 
 function simulateUserBehavior(element) {
-  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
   const rect = element.getBoundingClientRect();
   const x = rect.left + rect.width / 2;
   const y = rect.top + rect.height / 2;
-  const mouseEvent = new MouseEvent('mousemove', {
+  const mouseEvent = new MouseEvent("mousemove", {
     bubbles: true,
     clientX: x,
-    clientY: y
+    clientY: y,
   });
   element.dispatchEvent(mouseEvent);
 }
 
 function restoreFromStorage() {
-  const saved = localStorage.getItem('linkedin_jobs');
+  const saved = localStorage.getItem("linkedin_jobs");
   if (saved) {
     try {
       jobs = JSON.parse(saved);
-      jobs.forEach(j => jobSet.add(j.link));
+      jobs.forEach((j) => jobSet.add(j.link));
       renderJobTable();
     } catch (e) {
-      console.warn('Lỗi khôi phục dữ liệu:', e);
+      console.warn("Lỗi khôi phục dữ liệu:", e);
     }
   }
 }
 
 async function crawlJobsOnPage() {
-  const cards = [...document.querySelectorAll('.job-card-container--clickable')];
+  const cards = [
+    ...document.querySelectorAll(".job-card-container--clickable"),
+  ];
 
   for (const card of cards) {
     if (!isCrawling) return;
@@ -55,16 +59,69 @@ async function crawlJobsOnPage() {
     card.click();
     await wait(2000 + Math.random() * 1000);
 
-    const titleEl = card.querySelector('a.job-card-container__link span[aria-hidden="true"]');
-    const companyEl = card.querySelector('div.artdeco-entity-lockup__subtitle span');
-    const linkEl = card.querySelector('a.job-card-container__link');
-    const easyApplyEl = card.querySelector('li.job-card-container__footer-item svg[data-test-icon="linkedin-bug-color-small"]');
+    // --- SỬA LỖI: Cập nhật selector lấy Link và Title Job mới nhất ---
+    const linkEl =
+      card.querySelector('a[href*="/jobs/view/"]') ||
+      card.querySelector(".job-card-list__title") ||
+      card.querySelector("a.job-card-container__link");
+
+    let titleText = "";
+    let cleanedLink = "";
+
+    if (linkEl) {
+      // 1. Ưu tiên tìm thẻ span hoặc thẻ strong chứa text hiển thị thật
+      const spanHidden = linkEl.querySelector('span[aria-hidden="true"]');
+      const strongTag = linkEl.querySelector("strong");
+
+      if (spanHidden && spanHidden.innerText.trim() !== "") {
+        titleText = spanHidden.innerText.replace(/\n/g, " ").trim();
+      } else if (strongTag && strongTag.innerText.trim() !== "") {
+        titleText = strongTag.innerText.replace(/\n/g, " ").trim();
+      } else {
+        // 2. Nếu không có thẻ con, lấy text gốc và xử lý cắt đôi nếu bị lặp
+        let rawText = linkEl.innerText.replace(/\n/g, " ").trim();
+        let halfLen = Math.floor(rawText.length / 2);
+        if (
+          rawText.length > 10 &&
+          rawText.substring(0, halfLen).trim() ===
+            rawText.substring(halfLen).trim()
+        ) {
+          rawText = rawText.substring(0, halfLen).trim();
+        }
+        titleText = rawText;
+      }
+
+      // 3. Quét sạch chữ dính kèm
+      titleText = titleText.replace(/with verification/gi, "").trim();
+
+      // Xử lý link
+      const rawHref = linkEl.getAttribute("href") || "";
+      if (rawHref.startsWith("http")) {
+        cleanedLink = rawHref.split("?")[0];
+      } else if (rawHref) {
+        cleanedLink = `https://www.linkedin.com${rawHref.split("?")[0]}`;
+      }
+    }
+
+    // --- SỬA LỖI: Cập nhật selector lấy tên Công ty ---
+    const companyEl =
+      card.querySelector(".job-card-container__primary-description") ||
+      card.querySelector(".job-card-container__company-name") ||
+      card.querySelector(".artdeco-entity-lockup__subtitle");
+    const companyText = companyEl ? companyEl.innerText.trim() : "";
+
+    const easyApplyEl =
+      card.querySelector('[data-test-icon="linkedin-bug-color-small"]') ||
+      card.querySelector(".job-card-container__footer-item");
 
     // --- Get detailed info from detail panel ---
-    const detailContainer = document.querySelector('.job-details-jobs-unified-top-card__tertiary-description-container');
-    let location = '', date = '';
+    const detailContainer = document.querySelector(
+      ".job-details-jobs-unified-top-card__tertiary-description-container",
+    );
+    let location = "",
+      date = "";
     if (detailContainer) {
-      const spans = [...detailContainer.querySelectorAll('span.tvm__text')];
+      const spans = [...detailContainer.querySelectorAll("span.tvm__text")];
       for (const span of spans) {
         const txt = span.innerText?.trim();
         if (txt?.match(/\d+ (hours|days|minutes) ago/i)) date = txt;
@@ -72,41 +129,50 @@ async function crawlJobsOnPage() {
       }
     }
 
-    const fitContainer = document.querySelector('.job-details-fit-level-preferences');
-    let salary = '', type = '';
+    const fitContainer = document.querySelector(
+      ".job-details-fit-level-preferences",
+    );
+    let salary = "",
+      type = "";
     if (fitContainer) {
-      const btns = fitContainer.querySelectorAll('button span strong');
-      btns.forEach(btn => {
+      const btns = fitContainer.querySelectorAll("button span strong");
+      btns.forEach((btn) => {
         const txt = btn.innerText.trim();
         if (txt.includes("$")) salary = txt;
-        else if (txt.toLowerCase().includes("full") || txt.toLowerCase().includes("part")) type = txt;
+        else if (
+          txt.toLowerCase().includes("full") ||
+          txt.toLowerCase().includes("part")
+        )
+          type = txt;
         else if (!type) type = txt;
       });
     }
 
     const job = {
-      title: titleEl?.innerText?.trim() || '',
-      company: companyEl?.innerText?.trim() || '',
+      title: titleText,
+      company: companyText,
       location,
       salary,
-      link: linkEl ? `https://www.linkedin.com${linkEl.getAttribute('href')}` : '',
+      link: cleanedLink,
       date,
       type,
-      easyApply: easyApplyEl ? 'Yes' : 'No'
+      easyApply: easyApplyEl ? "Yes" : "No",
     };
 
     const key = job.link;
-    if (!jobSet.has(key)) {
+    if (key && !jobSet.has(key)) {
       jobs.push(job);
       jobSet.add(key);
       renderJobTable();
-      localStorage.setItem('linkedin_jobs', JSON.stringify(jobs));
+      localStorage.setItem("linkedin_jobs", JSON.stringify(jobs));
     }
   }
 }
 
 async function goToNextPage() {
-  const nextBtn = document.querySelector('button.jobs-search-pagination__button--next');
+  const nextBtn = document.querySelector(
+    "button.jobs-search-pagination__button--next",
+  );
   if (nextBtn && !nextBtn.disabled) {
     simulateUserBehavior(nextBtn);
     nextBtn.click();
@@ -133,15 +199,29 @@ async function startCrawling() {
 }
 
 function exportCSV() {
-  const header = "Company Name,Title Job,Link Job,Salary,Location,Type,Date,Easy Apply\n";
-  const rows = jobs.map(j =>
-    [ j.company, j.title, j.link,j.salary, j.location, j.type,  j.date, j.easyApply ]
-      .map(field => `"${(field || "").replace(/"/g, '""')}"`).join(',')
+  const header =
+    "Company Name,Title Job,Link Job,Salary,Location,Type,Date,Easy Apply\n";
+  const rows = jobs.map((j) =>
+    [
+      j.company,
+      j.title,
+      j.link,
+      j.salary,
+      j.location,
+      j.type,
+      j.date,
+      j.easyApply,
+    ]
+      .map((field) => `"${(field || "").replace(/"/g, '""')}"`)
+      .join(","),
   );
   const blob = new Blob([header + rows.join("\n")], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const title = document.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50);
+  const title = document.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .substring(0, 50);
   a.download = `${jobs.length}_jobs_${title}.csv`;
   a.href = url;
   a.click();
@@ -151,7 +231,7 @@ function exportCSV() {
 function resetData() {
   jobs = [];
   jobSet.clear();
-  localStorage.removeItem('linkedin_jobs');
+  localStorage.removeItem("linkedin_jobs");
   renderJobTable();
 }
 
@@ -226,7 +306,7 @@ function renderJobTable() {
 
   container.innerHTML = `
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-    <h6 style = "color: red"> Lưu ý: Sau khi bấm 'Bắt đầu' bạn cần thu nhỏ trang xuống 25% để tool có thể hoạt động chính xác nhất</h6>
+    <h6 style = "color: red; margin: 0 0 5px 0;"> Lưu ý: Sau khi bấm 'Bắt đầu' bạn cần thu nhỏ trang xuống 25% để tool có thể hoạt động chính xác nhất</h6>
       <label>Số trang tối đa:</label>
       <input id="maxPageInput" type="number" value="5" min="1" style="width: 60px" />
       <button id="startBtn">Bắt đầu</button>
@@ -255,7 +335,9 @@ function renderJobTable() {
   document.body.appendChild(container);
   document.getElementById("startBtn").onclick = () => startCrawling();
   document.getElementById("resetBtn").onclick = () => resetData();
-  document.getElementById("stopBtn").onclick = () => { isCrawling = false; };
+  document.getElementById("stopBtn").onclick = () => {
+    isCrawling = false;
+  };
 })();
 
-window.addEventListener('DOMContentLoaded', restoreFromStorage);
+window.addEventListener("DOMContentLoaded", restoreFromStorage);
